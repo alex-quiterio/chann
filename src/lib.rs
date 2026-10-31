@@ -239,15 +239,15 @@ unblocks.
 # Example: I want more!
 
 There are some examples in this crate's repository:
-https://github.com/BurntSushi/chan/tree/master/examples
+<https://github.com/alex-quiterio/chann/tree/main/examples>
 
 Here is a nice example using the `chan-signal` crate to read lines from
 stdin while gracefully quitting after receiving a `INT` or `TERM`
 signal:
-https://github.com/BurntSushi/chan-signal/blob/master/examples/read_names.rs
+<https://github.com/BurntSushi/chan-signal/blob/master/examples/read_names.rs>
 
 A non-trivial program for periodically sending email with the output of
-running a command: https://github.com/BurntSushi/rust-cmail (The source is
+running a command: <https://github.com/BurntSushi/rust-cmail> (The source is
 commented more heavily than normal.)
 
 
@@ -403,7 +403,7 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::ops::Drop;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
-use std::sync::atomic::{ATOMIC_USIZE_INIT, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 use std::time::Duration;
 
@@ -420,7 +420,7 @@ pub use wait_group::WaitGroup;
 //
 // N.B. This is combined with ChannelId to distinguish between the sending
 // and receiving halves of a channel.
-static NEXT_CHANNEL_ID: AtomicUsize = ATOMIC_USIZE_INIT;
+static NEXT_CHANNEL_ID: AtomicUsize = AtomicUsize::new(0);
 
 mod notifier;
 mod select;
@@ -498,8 +498,9 @@ pub fn sync<T>(size: usize) -> (Sender<T>, Receiver<T>) {
 /// (If a channel is closed and there are still values in the buffer, then
 /// receive operations will retrieve those first.)
 ///
-/// When all receivers are dropped, no special action is taken. When the buffer
-/// is full, all subsequent send operations will block indefinitely.
+/// When all receivers are dropped, no special action is taken. Since the
+/// buffer is unbounded, sends continue to succeed and values accumulate in
+/// memory until the channel itself is dropped.
 ///
 /// # Example
 ///
@@ -566,13 +567,7 @@ pub fn after(duration: Duration) -> Receiver<()> {
 /// wait.recv();
 /// ```
 pub fn after_ms(duration: u32) -> Receiver<()> {
-    #![allow(deprecated)]
-    let (send, recv) = sync(0);
-    thread::spawn(move || {
-        thread::sleep_ms(duration);
-        drop(send);
-    });
-    recv
+    after(Duration::from_millis(duration as u64))
 }
 
 /// Creates a new rendezvous channel that is "ticked" every duration.
@@ -588,14 +583,14 @@ pub fn after_ms(duration: u32) -> Receiver<()> {
 ///
 /// N.B. There is no way to reclaim the resources used by this function.
 /// If you stop receiving on the channel returned, then the thread spawned by
-/// `tick_ms` will block indefinitely.
+/// `tick` will block indefinitely.
 ///
 /// # Examples
 ///
 /// This is most useful when used in `chan_select!` because the received
-/// sentinel channel gets dropped only after the correspond arm has
+/// sentinel channel gets dropped only after the corresponding arm has
 /// executed. At which point, the ticker is reset and waits to tick until
-/// `duration` milliseconds lapses *after* the `chan_select!` arm is executed.
+/// `duration` lapses *after* the `chan_select!` arm is executed.
 ///
 /// ```
 /// # #[macro_use] extern crate chan; fn main() {
@@ -651,14 +646,14 @@ pub fn tick(duration: Duration) -> Receiver<Sender<()>> {
 ///
 /// N.B. There is no way to reclaim the resources used by this function.
 /// If you stop receiving on the channel returned, then the thread spawned by
-/// `tick_ms` will block indefinitely.
+/// `tick` will block indefinitely.
 ///
 /// # Examples
 ///
 /// This is most useful when used in `chan_select!` because the received
-/// sentinel channel gets dropped only after the correspond arm has
+/// sentinel channel gets dropped only after the corresponding arm has
 /// executed. At which point, the ticker is reset and waits to tick until
-/// `duration` milliseconds lapses *after* the `chan_select!` arm is executed.
+/// `duration` lapses *after* the `chan_select!` arm is executed.
 ///
 /// ```
 /// # #[macro_use] extern crate chan; fn main() {
@@ -680,24 +675,7 @@ pub fn tick(duration: Duration) -> Receiver<Sender<()>> {
 /// # }
 /// ```
 pub fn tick_ms(duration: u32) -> Receiver<Sender<()>> {
-    #![allow(deprecated)]
-    let (send, recv) = sync(0);
-    if duration == 0 {
-        // Leak the send channel so that it never gets closed and
-        // `recv` never synchronizes.
-        ::std::mem::forget(send);
-    } else {
-        thread::spawn(move || {
-            loop {
-                thread::sleep_ms(duration);
-                let (sdone, rdone) = sync(0);
-                send.send(sdone);
-                // Block until `sdone` gets closed by the caller.
-                rdone.recv();
-            }
-        });
-    }
-    recv
+    tick(Duration::from_millis(duration as u64))
 }
 
 /// A value that uniquely identifies one half of a channel.
@@ -871,7 +849,7 @@ enum RecvOpKind<T> {
 impl<T> Sender<T> {
     /// Send a value on this channel.
     ///
-    /// If this is an asnychronous channel, `send` never blocks.
+    /// If this is an asynchronous channel, `send` never blocks.
     ///
     /// If this is a synchronous channel, `send` only blocks when the buffer
     /// is full.
@@ -920,7 +898,7 @@ impl<T> Sender<T> {
 impl<T> Receiver<T> {
     /// Receive a value on this channel.
     ///
-    /// If this is an asnychronous channel, `recv` only blocks when the
+    /// If this is an asynchronous channel, `recv` only blocks when the
     /// buffer is empty.
     ///
     /// If this is a synchronous channel, `recv` only blocks when the buffer
@@ -1015,7 +993,7 @@ impl<T> Channel<T> {
 }
 
 impl<T> Inner<T> {
-    fn lock(&self) -> MutexGuard<Data<T>> {
+    fn lock(&self) -> MutexGuard<'_, Data<T>> {
         self.data.lock().unwrap()
     }
 
@@ -1324,11 +1302,12 @@ impl<T> Eq for Receiver<T> {}
 impl<T: fmt::Debug> fmt::Debug for Inner<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let data = self.data.lock().unwrap();
-        try!(writeln!(f, "SyncInner {{"));
-        try!(writeln!(f, "    id: {:?},", self.id));
-        try!(writeln!(f, "    cap: {:?},", self.cap));
-        try!(writeln!(f, "    notify: {:?},", self.notify));
-        try!(writeln!(f, "    data: {:?},", &*data));
+        writeln!(f, "Inner {{")?;
+        writeln!(f, "    id: {:?},", self.id)?;
+        writeln!(f, "    ty: {:?},", self.ty)?;
+        writeln!(f, "    cap: {:?},", self.cap)?;
+        writeln!(f, "    notify: {:?},", self.notify)?;
+        writeln!(f, "    data: {:?},", &*data)?;
         write!(f, "}}")
     }
 }
@@ -1596,22 +1575,27 @@ mod tests {
     #[test]
     fn simple_try() {
         let (send, recv) = sync(1);
-        send.try_send(5).is_err();
-        recv.try_recv().is_err();
+        assert_eq!(recv.try_recv(), Err(()));
+        assert_eq!(send.try_send(5), Ok(()));
+        assert_eq!(send.try_send(6), Err(6));
+        assert_eq!(recv.try_recv(), Ok(Some(5)));
+        drop(send);
+        assert_eq!(recv.try_recv(), Ok(None));
     }
 
     #[test]
     fn simple_try_rendezvous() {
         let (send, recv) = sync(0);
-        send.try_send(5).is_err();
-        recv.try_recv().is_err();
+        assert_eq!(send.try_send(5), Err(5));
+        assert_eq!(recv.try_recv(), Err(()));
     }
 
     #[test]
     fn simple_try_async() {
         let (send, recv) = async();
-        recv.try_recv().is_err();
-        send.try_send(5).is_ok();
+        assert_eq!(recv.try_recv(), Err(()));
+        assert_eq!(send.try_send(5), Ok(()));
+        assert_eq!(recv.try_recv(), Ok(Some(5)));
     }
 
     #[test]

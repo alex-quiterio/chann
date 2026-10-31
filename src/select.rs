@@ -17,7 +17,7 @@ use {ChannelId, Receiver, Sender, Data};
 ///
 /// If we want to expose a select interface not built on a macro then it
 /// probably shouldn't be this one. However, doing it in a way that is both
-/// ergonomic and hetergeneous is probably tricky.
+/// ergonomic and heterogeneous is probably tricky.
 #[doc(hidden)]
 pub struct Select<'c> {
     /// A condition variable that is notified when one of the participating
@@ -26,7 +26,7 @@ pub struct Select<'c> {
     /// A mutex for guarding notification from channels.
     cond_mutex: Arc<Mutex<()>>,
     /// The set of all arms.
-    choices: BTreeMap<ChannelId, Box<Choice + 'c>>,
+    choices: BTreeMap<ChannelId, Box<dyn Choice + 'c>>,
     /// Scratch space for quickly shuffling the order in which we try to
     /// synchronize an operation in select.
     ids: Option<Vec<ChannelId>>,
@@ -44,7 +44,7 @@ pub struct SelectSendHandle<'s, T: 's> {
 
 /// The result of adding a recv operation to `Select`.
 ///
-/// This exposes a uniform interface with `SelectRecvHandle`. Namely, the id
+/// This exposes a uniform interface with `SelectSendHandle`. Namely, the id
 /// of the underlying channel can be accessed.
 ///
 /// This also stores a reference to the value that has been received. The
@@ -59,7 +59,7 @@ pub struct SelectRecvHandle<'r, T: 'r> {
 /// Expose a uniform interface over send and receive operations.
 ///
 /// In particular, this trait is used to *erase* the type parameter in the
-/// `Receiver` and `Sender` types. This is essential to building a hetergeneous
+/// `Receiver` and `Sender` types. This is essential to building a heterogeneous
 /// select.
 trait Choice {
     /// Subscribe the owning `Select` to the channel in this choice.
@@ -123,7 +123,7 @@ impl<'c> Select<'c> {
     fn maybe_try_select(&mut self, try: bool) -> Option<ChannelId> {
         fn try_sync<'c>(
             ids: &mut Option<Vec<ChannelId>>,
-            choices: &mut BTreeMap<ChannelId, Box<Choice + 'c>>,
+            choices: &mut BTreeMap<ChannelId, Box<dyn Choice + 'c>>,
         ) -> Option<ChannelId> {
             let ids = ids.as_mut().unwrap();
             rand::thread_rng().shuffle(ids);

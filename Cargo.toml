@@ -4,17 +4,12 @@ version = "0.1.23"  #:version
 authors = ["Andrew Gallant <jamslam@gmail.com>"]
 description = "DEPRECATED. Use crossbeam-channel instead."
 documentation = "https://docs.rs/chan"
-homepage = "https://github.com/BurntSushi/chan"
-repository = "https://github.com/BurntSushi/chan"
+homepage = "https://github.com/alex-quiterio/chann"
+repository = "https://github.com/alex-quiterio/chann"
 readme = "README.md"
 keywords = ["channel", "asynchronous", "mpmc", "golang", "select"]
 license = "Unlicense/MIT"
+edition = "2015"
 
 [dependencies]
 rand = "0.3"
-
-[features]
-nightly = []
-
-[dev-dependencies]
-hyper = { version = "0.7" }

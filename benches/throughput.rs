@@ -109,7 +109,7 @@ macro_rules! bench_select_no_init {
                 }
                 let mut recv = vec![];
                 let (r0, r1, r2, r3) = (&rs[0], &rs[1], &rs[2], &rs[3]);
-                let mut done = &mut [false, false, false, false];
+                let done = &mut [false, false, false, false];
                 loop {
                     chan_select! {
                         r0.recv() -> d => {
@@ -179,7 +179,7 @@ macro_rules! bench_select_with_init {
                 }
                 let mut recv = vec![];
                 let (r0, r1, r2, r3) = (&rs[0], &rs[1], &rs[2], &rs[3]);
-                let mut done = &mut [false, false, false, false];
+                let done = &mut [false, false, false, false];
                 let mut sel = chan::Select::new();
                 loop {
                     chan_select! {sel,

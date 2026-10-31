@@ -1,14 +1,12 @@
-all:
-	echo Nothing to do...
+all: test
+
+test:
+	cargo test
 
 ctags:
 	ctags --recurse --options=ctags.rust --languages=Rust
 
 docs:
 	cargo doc
-	in-dir ./target/doc fix-perms
-	rscp ./target/doc/* gopher:~/www/burntsushi.net/rustdoc/
 
-push:
-	git push origin master
-	git push github master
+.PHONY: all test ctags docs

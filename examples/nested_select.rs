@@ -17,6 +17,9 @@ use std::time::Duration;
 fn main() {
     let (s1, r1) = chan::sync(0);
     let (s2, r2) = chan::sync(0);
+    // The original senders stay alive (shadowed) until the end of `main`, so
+    // `r1` and `r2` never close. If they did, `r1.recv()` below would always
+    // be ready with `None` and the loop would never reach `done.recv()`.
     let (s1, s2) = (s1.clone(), s2.clone());
     let wg = chan::WaitGroup::new();
     wg.add(2);
