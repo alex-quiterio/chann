@@ -1,74 +1,120 @@
-chann
-=====
+<div align="center">
 
-Multi-producer, multi-consumer channels for Rust, with a `chan_select!`
-macro that can wait on any mix of send and receive operations. The crate
-inside this repository is named `chan`.
+# 📡 chann
 
-The semantics follow Go's channels: rendezvous, buffered and unbounded
-channels, a `select` with an optional `default` arm, timers (`after`,
-`tick`) and a `WaitGroup`. Every "goroutine" is an OS thread, and the crate
-contains no `unsafe` code.
+**Go-style channels for Rust: multi-producer, multi-consumer, with a real `select`.**
 
+[![CI](https://github.com/alex-quiterio/chann/actions/workflows/ci.yml/badge.svg)](https://github.com/alex-quiterio/chann/actions/workflows/ci.yml)
+[![License: MIT OR Unlicense](https://img.shields.io/badge/license-MIT%20%2F%20Unlicense-blue.svg)](#-license)
+[![Rust edition 2015](https://img.shields.io/badge/rust-edition%202015-orange.svg?logo=rust)](Cargo.toml)
+[![unsafe: none](https://img.shields.io/badge/unsafe-none-brightgreen.svg)](src/lib.rs)
+[![status: end of life upstream](https://img.shields.io/badge/status-end%20of%20life%20upstream-lightgrey.svg)](#%EF%B8%8F-status)
 
-### Status
+[Quick start](#-quick-start) ·
+[Channel kinds](#-three-kinds-of-channel) ·
+[`chan_select!`](#-chan_select) ·
+[Coming from Go](#-coming-from-go) ·
+[Examples](#-examples) ·
+[Layout](#%EF%B8%8F-project-layout)
 
-This is a copy of Andrew Gallant's
-[`chan`](https://github.com/BurntSushi/chan) crate at version 0.1.23.
-Upstream has declared it end of life and recommends
-[`crossbeam-channel`](https://github.com/crossbeam-rs/crossbeam), which has a
-very similar API, a better `select!`, and better performance. Use this crate
-for learning or for code that already depends on it, not for new projects.
+</div>
 
-The code builds and its tests pass on current stable Rust without warnings.
-The crate stays on the 2015 edition because one of its public functions is
-called `async`, which became a keyword in the 2018 edition.
+---
 
+The crate in this repository is named **`chan`**. It gives you the toolkit Go
+programmers reach for without thinking:
 
-### Requirements
+- 🔁 **Rendezvous, buffered and unbounded channels.** All of them share the
+  same `Sender<T>` / `Receiver<T>` types, so you can mix them freely.
+- 🎯 **`chan_select!`** waits on any mix of sends *and* receives, with an
+  optional non-blocking `default` arm.
+- ⏰ **Timers**: `after` fires once, `tick` fires forever.
+- 👥 **`WaitGroup`**, to wait for a set of threads to finish.
+- 🧵 **Plain OS threads**. There is no runtime, no executor and no `unsafe`.
 
-* Rust stable and Cargo (checked with Rust 1.99).
-* The only runtime dependency is `rand` 0.3, used to shuffle the arms of
-  `chan_select!`.
-* The benchmarks need a nightly compiler (they use `#![feature(test)]`).
+> [!WARNING]
+> ### ⚠️ Status
+>
+> This is a copy of Andrew Gallant's [`chan`](https://github.com/BurntSushi/chan)
+> crate at **v0.1.23**. Upstream has declared it end of life and recommends
+> [`crossbeam-channel`](https://github.com/crossbeam-rs/crossbeam), which has a
+> very similar API, a better `select!` and better performance.
+> **Use this crate for learning or for code that already depends on it, not
+> for new projects.**
+>
+> It builds and passes its tests on current stable Rust with no warnings. It
+> stays on the 2015 edition because one of its public functions is named
+> `async`, which became a keyword in 2018.
 
+---
 
-### Install
+## 🚀 Quick start
 
-The crate is not published from this repository, so depend on it through git:
+The crate isn't published from this repository, so depend on it through git:
 
 ```toml
 [dependencies]
 chan = { git = "https://github.com/alex-quiterio/chann" }
 ```
 
-To build it locally:
+Then use it:
 
-```sh
-git clone https://github.com/alex-quiterio/chann
-cd chann
-cargo build
+```rust
+use std::thread;
+
+fn main() {
+    let (tx, rx) = chan::sync(0);          // a rendezvous channel
+    thread::spawn(move || {
+        for i in 1..=3 {
+            tx.send(i);
+        }
+    });                                     // tx is dropped here, which closes the channel
+    for v in rx {                           // receivers are iterators
+        println!("got {}", v);
+    }
+}
 ```
 
+<details>
+<summary><b>Requirements</b></summary>
 
-### Usage
+- Rust stable and Cargo (checked with Rust 1.99).
+- One runtime dependency: `rand` 0.3, used to shuffle the arms of `chan_select!`.
+- The benchmarks need a nightly compiler (`#![feature(test)]`).
 
-Create a channel with one of three constructors. Each returns a
-`(Sender<T>, Receiver<T>)` pair, and both halves can be cloned freely and
-moved to other threads.
+</details>
 
-| Constructor     | Kind                | `send` blocks                  |
-|-----------------|---------------------|--------------------------------|
-| `chan::sync(0)` | rendezvous          | until a `recv` takes the value |
-| `chan::sync(n)` | buffered, `n` slots | while the buffer is full       |
-| `chan::async()` | unbounded           | never                          |
+---
 
-A channel closes when its last `Sender` is dropped. After that, `recv`
-drains whatever is still buffered and then returns `None` at once. There is
-no explicit `close`.
+## 🔀 Three kinds of channel
 
-Selecting on a ticker, a timeout and a non-blocking `default` arm, in a crate
-using the 2018 or 2021 edition:
+Every constructor returns a `(Sender<T>, Receiver<T>)` pair. Both halves can
+be cloned and moved to other threads as often as you like.
+
+| Constructor     | Kind                    | `send` blocks...                  |
+|-----------------|-------------------------|-----------------------------------|
+| `chan::sync(0)` | 🤝 rendezvous           | until a `recv` takes the value    |
+| `chan::sync(n)` | 📦 buffered, `n` slots  | while the buffer is full          |
+| `chan::async()` | ♾️ unbounded            | never                             |
+
+```mermaid
+flowchart LR
+    P1[Producer] -- send --> C((channel))
+    P2[Producer] -- send --> C
+    C -- recv --> R1[Consumer]
+    C -- recv --> R2[Consumer]
+```
+
+**Closing.** A channel closes when its **last `Sender` is dropped**. After
+that, `recv` drains whatever is still buffered and then returns `None` at
+once. There is no explicit `close`.
+
+---
+
+## 🎯 `chan_select!`
+
+Here a loop selects on a ticker, a timeout and a non-blocking `default` arm,
+in a crate on the 2018 or 2021 edition:
 
 ```rust
 use std::thread;
@@ -89,33 +135,58 @@ fn main() {
 }
 ```
 
-In a 2015-edition crate, use `#[macro_use] extern crate chan;` instead of the
-`use` line. In 2018 and later, the unbounded constructor has to be written
-`chan::r#async()`.
+> [!NOTE]
+> In a **2015-edition** crate, use `#[macro_use] extern crate chan;` instead
+> of the `use` line. In **2018 and later**, the unbounded constructor has to
+> be written `chan::r#async()`.
 
-`chan_select!` has a few strict rules. Breaking them gives an unhelpful
-"recursion limit reached" error:
+### The rules
 
-* every arm ends with a comma, braces or not;
-* `default`, if present, must be the first arm;
-* each operation must be `ident.recv()` or `ident.send(expr)`, so bind
-  channels to a name first;
-* `recv()` arms can bind the result with `-> name`, which is an `Option<T>`.
+`chan_select!` is strict, and breaking a rule gives you an unhelpful
+*"recursion limit reached"* error:
 
-Other behaviour worth knowing:
+| ✅ Do                                                    | ❌ Don't                                  |
+|----------------------------------------------------------|-------------------------------------------|
+| End **every** arm with a comma, braces or not            | Leave the last arm without a comma        |
+| Put `default` **first**, if you use it                   | Put `default` anywhere else               |
+| Use `ident.recv()` or `ident.send(expr)`                 | Call `foo.bar.recv()` or `get().recv()`   |
+| Bind a received value with `-> name` (an `Option<T>`)    | Expect a bare `T`                         |
 
-* Dropping every `Receiver` does not close a channel. A send that has to wait
-  for a receiver (a full buffer, or any rendezvous send) then blocks forever.
-* `tick` and `tick_ms` start a thread that is never reclaimed.
-* There is no public `try_send` or `try_recv`. Use `chan_select!` with a
+### Gotchas
+
+- 🕳️ **Dropping every `Receiver` does not close a channel.** A send that has
+  to wait for a receiver (a full buffer, or any rendezvous send) then blocks
+  forever.
+- 🧟 `tick` and `tick_ms` start a thread that is never reclaimed.
+- 🚫 There is no `try_send` or `try_recv`. Use `chan_select!` with a
   `default` arm instead.
-* `chan_select!` cannot rendezvous with another `chan_select!` on the same
+- 🪞 Two `chan_select!`s can't rendezvous with each other on the same
   unbuffered channel. One side must be a plain blocking `send` or `recv`.
 
-The crate documentation (`cargo doc --open`) covers all of this in more
-depth, with examples for each pattern.
+`cargo doc --open` covers all of this in more depth, with an example for each
+pattern.
 
-More runnable examples are in `examples/`:
+---
+
+## 🐹 Coming from Go
+
+| Go                              | chann                                        |
+|---------------------------------|----------------------------------------------|
+| `ch := make(chan int)`          | `let (tx, rx) = chan::sync(0);`              |
+| `ch := make(chan int, 8)`       | `let (tx, rx) = chan::sync(8);`              |
+| `ch <- v`                       | `tx.send(v);`                                |
+| `v, ok := <-ch`                 | `let v: Option<i32> = rx.recv();`            |
+| `for v := range ch { }`         | `for v in rx { }` or `for v in &rx { }`      |
+| `close(ch)`                     | drop every `Sender`                          |
+| `select { case ...: default: }` | `chan_select! { default => ..., ... }`       |
+| `time.After(d)`                 | `chan::after(d)`                             |
+| `time.Tick(d)`                  | `chan::tick(d)`                              |
+| `sync.WaitGroup`                | `chan::WaitGroup` (`add`, `done`, `wait`)    |
+| `go f()`                        | `std::thread::spawn(f)`                      |
+
+---
+
+## 🧪 Examples
 
 ```sh
 cargo run --example default        # the select loop above
@@ -124,8 +195,9 @@ cargo run --example leaky_buffer   # Go's "leaky buffer" free list
 cargo run --example nested_select  # nested selects to prioritise a channel
 ```
 
+---
 
-### Project layout
+## 🗂️ Project layout
 
 ```
 src/lib.rs          channel types, constructors, timers, chan_select!, unit tests
@@ -138,24 +210,23 @@ benches/            throughput benchmarks against std::sync::mpsc (nightly)
 BENCHMARKS.md       one recorded benchmark run from upstream
 ```
 
+---
 
-### Tests
-
-```sh
-cargo test
-```
-
-This runs the unit tests in `src/lib.rs` and the documentation examples.
-Some tests use real sleeps, so the suite takes a few seconds.
-
-Benchmarks need nightly:
+## ✅ Tests and benchmarks
 
 ```sh
-cargo +nightly bench
+cargo test             # unit tests and doc examples (a few seconds; some tests sleep)
+cargo +nightly bench   # throughput against std::sync::mpsc
 ```
 
+---
 
-### License
+## 📜 License
 
-Dual-licensed under MIT or the [Unlicense](https://unlicense.org). See
-`COPYING`, `LICENSE-MIT` and `UNLICENSE`.
+Dual-licensed under **MIT** or the **[Unlicense](https://unlicense.org)**, at
+your option. See [`COPYING`](COPYING), [`LICENSE-MIT`](LICENSE-MIT) and
+[`UNLICENSE`](UNLICENSE).
+
+<div align="center">
+<sub>Originally written by <a href="https://github.com/BurntSushi">Andrew Gallant</a>. Kept alive here for learning.</sub>
+</div>
