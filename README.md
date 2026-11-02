@@ -35,10 +35,6 @@ programmers reach for without thinking:
 > [!WARNING]
 > ### ⚠️ Status
 >
-> This is a copy of Andrew Gallant's [`chan`](https://github.com/BurntSushi/chan)
-> crate at **v0.1.23**. Upstream has declared it end of life and recommends
-> [`crossbeam-channel`](https://github.com/crossbeam-rs/crossbeam), which has a
-> very similar API, a better `select!` and better performance.
 > **Use this crate for learning or for code that already depends on it, not
 > for new projects.**
 >
